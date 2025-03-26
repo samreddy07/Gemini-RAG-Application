@@ -2,7 +2,7 @@ import streamlit as st
 from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import os
-from langchain_groq import GroqEmbeddings, ChatGroq
+from langchain_groq import ChatGroq
 from langchain_community.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
@@ -24,10 +24,8 @@ def get_text_chunks(text):
     return chunks
 
 def get_vector_store(text_chunks):
-    embeddings = GroqEmbeddings(api_key=api_key)
-    
     try:
-        vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
+        vector_store = FAISS.from_texts(text_chunks, embedding=None)  # No embeddings used here
         vector_store.save_local("faiss_index")
     except Exception as e:
         print(f"Error during embedding: {e}")
@@ -54,10 +52,8 @@ def get_conversational_chain(retriever):
     return chain
 
 def user_input(user_question):
-    embeddings = GroqEmbeddings(api_key=api_key)
-    
     try:
-        new_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
+        new_db = FAISS.load_local("faiss_index", embedding=None, allow_dangerous_deserialization=True)
         docs = new_db.similarity_search(user_question)
 
         chain = get_conversational_chain(new_db.as_retriever())
