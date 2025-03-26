@@ -6,12 +6,10 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 import google.generativeai as genai
 from langchain_community.vectorstores import FAISS
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.chains.question_answering import load_qa_chain
+from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
-from dotenv import load_dotenv
 
-# Load environment variables
-# load_dotenv()
+# Configure the API key directly
 api_key = "AIzaSyD4Zs3LguIVogdSAH09K2fNpOM6dhsusFg"
 genai.configure(api_key=api_key)
 
@@ -38,7 +36,7 @@ def get_vector_store(text_chunks):
         print(f"Error during embedding: {e}")
         st.error("An error occurred while embedding the documents. Please check the logs for more details.")
 
-def get_conversational_chain():
+def get_conversational_chain(retriever):
     prompt_template = """
     Context:\n {context}?\n
     Question: \n{question}\n
@@ -48,7 +46,13 @@ def get_conversational_chain():
 
     model = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.3)
     prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
-    chain = load_qa_chain(model, chain_type="stuff", prompt=prompt)
+    
+    chain = RetrievalQA.from_chain_type(
+        llm=model,
+        chain_type="stuff",
+        retriever=retriever,
+        return_source_documents=True
+    )
 
     return chain
 
@@ -59,8 +63,8 @@ def user_input(user_question):
         new_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
         docs = new_db.similarity_search(user_question)
 
-        chain = get_conversational_chain()
-        response = chain({"input_documents": docs, "question": user_question}, return_only_outputs=True)
+        chain = get_conversational_chain(new_db.as_retriever())
+        response = chain.invoke({"input_documents": docs, "question": user_question})
 
         print(response)
         st.write("Reply: ", response["output_text"])
