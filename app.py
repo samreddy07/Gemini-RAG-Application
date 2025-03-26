@@ -1,11 +1,11 @@
 import streamlit as st
 from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-import os
 from langchain_groq import ChatGroq
 from langchain_community.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
+import wikipedia
 
 # Configure the Groq API key directly
 api_key = "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"
@@ -55,6 +55,10 @@ def user_input(user_question):
     try:
         new_db = FAISS.load_local("faiss_index", embedding=None, allow_dangerous_deserialization=True)
         docs = new_db.similarity_search(user_question)
+
+        # Retrieve information from Wikipedia
+        wiki_summary = wikipedia.summary(user_question, sentences=2)
+        docs.append({"text": wiki_summary})
 
         chain = get_conversational_chain(new_db.as_retriever())
         response = chain.invoke({"input_documents": docs, "question": user_question})
