@@ -2,16 +2,13 @@ import streamlit as st
 from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import os
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-import google.generativeai as genai
+from langchain_groq import GroqEmbeddings, ChatGroq
 from langchain_community.vectorstores import FAISS
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
 
-# Configure the API key directly
-api_key = "AIzaSyD4Zs3LguIVogdSAH09K2fNpOM6dhsusFg"
-genai.configure(api_key=api_key)
+# Configure the Groq API key directly
+api_key = "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"
 
 def get_pdf_text(pdf_docs):
     text = ""
@@ -27,7 +24,7 @@ def get_text_chunks(text):
     return chunks
 
 def get_vector_store(text_chunks):
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+    embeddings = GroqEmbeddings(api_key=api_key)
     
     try:
         vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
@@ -44,7 +41,7 @@ def get_conversational_chain(retriever):
     Answer:
     """
 
-    model = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.3)
+    model = ChatGroq(api_key=api_key, temperature=0.3)
     prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
     
     chain = RetrievalQA.from_chain_type(
@@ -57,7 +54,7 @@ def get_conversational_chain(retriever):
     return chain
 
 def user_input(user_question):
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+    embeddings = GroqEmbeddings(api_key=api_key)
     
     try:
         new_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
@@ -74,7 +71,7 @@ def user_input(user_question):
 
 def main():
     st.set_page_config("Chat PDF")
-    st.header("Chat with PDF using Gemini💁")
+    st.header("Chat with PDF using Groq💁")
 
     user_question = st.text_input("Ask a Question from the PDF Files")
 
