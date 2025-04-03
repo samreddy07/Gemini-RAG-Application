@@ -4,7 +4,7 @@ python-dotenv
 langchain
 PyPDF2
 chromadb
-azure-ai
+azure
 faiss-cpu
 langchain-groq
 langchain-community
