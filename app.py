@@ -1,14 +1,15 @@
 import streamlit as st
 from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_groq import ChatGroq
 from langchain_community.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
 import wikipedia
+from azure.ai.language import LanguageClient
 
-# Configure the Groq API key directly
-api_key = "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"
+# Configure the Azure API key and endpoint
+api_key = "your_azure_api_key"
+endpoint = "https://innovate-openai-api-mgt.azure-api.net/innovate-tracked/deployments/gpt-4o-mini/chat/completions?api-version=2025-04-03"
 
 def get_pdf_text(pdf_docs):
     text = ""
@@ -39,11 +40,11 @@ def get_conversational_chain(retriever):
     Answer:
     """
 
-    model = ChatGroq(api_key=api_key, temperature=0.3)
+    client = LanguageClient(api_key=api_key, endpoint=endpoint)
     prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
     
     chain = RetrievalQA.from_chain_type(
-        llm=model,
+        llm=client,
         chain_type="stuff",
         retriever=retriever,
         return_source_documents=True
@@ -71,7 +72,7 @@ def user_input(user_question):
 
 def main():
     st.set_page_config("Chat PDF")
-    st.header("Chat with PDF using Groq💁")
+    st.header("Chat with PDF using Azure💁")
 
     user_question = st.text_input("Ask a Question from the PDF Files")
 
