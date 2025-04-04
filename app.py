@@ -24,6 +24,12 @@ client = AzureOpenAI(
    api_version ="2024-02-01",
    azure_endpoint = "https://innovate-openai-api-mgt.azure-api.net/innovate-tracked/deployments/ada-002/embeddings?api-version=2024-02-01"
 )
+
+chat_client = AzureOpenAI(
+   api_key="85015946c55b4763bcc88fc4db9071dd",
+   api_version ="2024-02-01",
+   azure_endpoint = "https://innovate-openai-api-mgt.azure-api.net/innovate-tracked/deployments/gpt-4o-mini/chat/completions?api-version=2024-02-01"
+)
 # ---- Utility Functions ----
 def extract_text_from_pdf(file) -> str:
    """Extracts text from each page of an uploaded PDF file object."""
@@ -104,15 +110,15 @@ def answer_query(question: str) -> str:
    relevant_chunks = search_chunks(question_embedding)
    context = "\n\n".join(relevant_chunks)
    prompt = f"Context: {context}\n\nQuestion: {question}\nAnswer:"
-   response = openai.ChatCompletion.create(
-       deployment_id=AZURE_OPENAI_COMPLETION_DEPLOYMENT,
+   response = chat_client.chat.completions.create(
+       model=AZURE_OPENAI_COMPLETION_DEPLOYMENT,
        messages=[
            {"role": "system", "content": "You are an expert assistant."},
            {"role": "user", "content": prompt}
        ],
        temperature=0.7,
    )
-   answer = response["choices"][0]["message"]["content"]
+   answer = response.choices[0].message.content
    return answer
 # ---- Streamlit UI ----
 st.title("PDF QA Application (POC with Azure OpenAI)")
