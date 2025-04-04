@@ -5,3 +5,5 @@ langchain-community==0.0.1
 wikipedia-api==0.5.4
 azure-ai-ml==1.26.0
 faiss-cpu==1.7.3
+sqlite3
+
