@@ -8,16 +8,25 @@ import numpy as np
 # ---- Config ----
 # Set your Azure OpenAI values here or as environment variables.
 # https://innovate-openai-api-mgt.azure-api.net/innovate-tracked/deployments/{deployment-id}/chat/completions?api-version={api-version}
-AZURE_OPENAI_KEY = "85015946c55b4763bcc88fc4db9071dd"
-AZURE_OPENAI_ENDPOINT = "https://innovate-openai-api-mgt.azure-api.net/innovate-tracked/deployments/gpt-4o-mini/chat/completions?api-version=2024-02-01"
-AZURE_OPENAI_EMBEDDING_DEPLOYMENT = "https://innovate-openai-api-mgt.azure-api.net/innovate-tracked/deployments/ada-002/embeddings?api-version=2024-02-01"
-AZURE_OPENAI_COMPLETION_DEPLOYMENT = "gpt-4o-mini"
+AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY", "85015946c55b4763bcc88fc4db9071dd")
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "https://innovate-openai-api-mgt.azure-api.net/innovate-tracked/deployments/gpt-4o-mini/chat/completions?api-version=2024-02-01")
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "https://innovate-openai-api-mgt.azure-api.net/innovate-tracked/deployments/ada-002/embeddings?api-version=2024-02-01")
+AZURE_OPENAI_COMPLETION_DEPLOYMENT = os.getenv("AZURE_OPENAI_COMPLETION_DEPLOYMENT", "gpt-4o-mini")
 # Configure the OpenAI client for Azure
 openai.api_type = "azure"
 openai.api_base = AZURE_OPENAI_ENDPOINT
 openai.api_version = "2024-02-01"  # use the version required by your deployment
 openai.api_key = AZURE_OPENAI_KEY
 DB_PATH = "vector_store.db"
+
+# Check if the database file exists
+if not os.path.exists(DB_PATH):
+    # Create the database file if it does not exist
+    conn = sqlite3.connect(DB_PATH)
+    conn.close()
+    print(f"Database '{DB_PATH}' created successfully.")
+else:
+    print(f"Database '{DB_PATH}' already exists.")
 # ---- Utility Functions ----
 def extract_text_from_pdf(file) -> str:
    """Extracts text from each page of an uploaded PDF file object."""
