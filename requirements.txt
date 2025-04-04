@@ -2,5 +2,5 @@ streamlit==1.19.0
 PyPDF2==3.0.0
 db-sqlite3
 altair==4.1.0
-openai==0.28
+openai==0.28.1
 azure-core
