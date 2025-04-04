@@ -4,7 +4,7 @@ import numpy as np
 import json
 import os
 import PyPDF2
-from openai import AzureOpenAI  
+from openai import AzureOpenAI  # Import AzureOpenAI SDK
 # === CONFIGURATION ===
 AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY", "85015946c55b4763bcc88fc4db9071dd")
 AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "https://innovate-openai-api-mgt.azure-api.net/innovate-tracked/deployments/gpt-4o-mini/chat/completions?api-version=2024-02-01")
@@ -24,71 +24,75 @@ chat_client = AzureOpenAI(
    api_version ="2024-02-01",
    azure_endpoint = "https://innovate-openai-api-mgt.azure-api.net/innovate-tracked/deployments/gpt-4o-mini/chat/completions?api-version=2024-02-01"
 )
-# === STREAMLIT UI SETTINGS ===
-st.set_page_config(page_title="ChatGPT PDF Q&A", layout="wide")
-st.title("📄 ChatGPT-Powered PDF Q&A Bot")
-# Chat history storage
-if "messages" not in st.session_state:
-   st.session_state.messages = []
-# === UI: PROFESSIONAL CHAT INTERFACE ===
-st.markdown("""
-<style>
-   .message-container {
-       max-width: 750px;
-       padding: 10px 15px;
-       margin: 5px 0;
-       border-radius: 10px;
-       font-size: 16px;
-       display: inline-block;
-       word-wrap: break-word;
-   }
-   .user-message {
-       background-color: #DCF8C6;
-       text-align: right;
-       float: right;
-       clear: both;
-   }
-   .bot-message {
-       background-color: #F1F1F1;
-       text-align: left;
-       float: left;
-       clear: both;
-   }
-   .chat-container {
-       overflow-y: auto;
-       height: 500px;
-       border: 1px solid #ccc;
-       padding: 10px;
-       border-radius: 5px;
-       background-color: #FFF;
-   }
-</style>
-""", unsafe_allow_html=True)
-# Display Chat History
-st.markdown("<div class='chat-container'>", unsafe_allow_html=True)
-for message in st.session_state.messages:
-   if message["role"] == "user":
-       st.markdown(f"<div class='message-container user-message'>{message['content']}</div>", unsafe_allow_html=True)
-   else:
-       st.markdown(f"<div class='message-container bot-message'>{message['content']}</div>", unsafe_allow_html=True)
-st.markdown("</div>", unsafe_allow_html=True)
-# === PDF UPLOAD SECTION ===
-uploaded_file = st.file_uploader("📂 Upload a PDF", type=["pdf"])
+# === FAISS STORE ===
+class FAISSStore:
+   def __init__(self, embedding_dim=1536):
+       self.embedding_dim = embedding_dim
+       self.index = faiss.IndexFlatL2(self.embedding_dim)  # L2 distance search
+       self.metadata = []  # Stores text chunks
+       # Load existing index if available
+       if os.path.exists(FAISS_INDEX_PATH):
+           self.load_index()
+   def add_embeddings(self, texts, embeddings):
+       """Adds text chunks & embeddings to FAISS"""
+       if not embeddings:
+           return
+       vectors = np.array(embeddings).astype("float32")
+       self.index.add(vectors)
+       self.metadata.extend(texts)
+       self.save_index()
+   def search(self, query_embedding, top_k=3):
+       """Searches FAISS for the closest text chunks"""
+       query_vector = np.array(query_embedding).astype("float32").reshape(1, -1)
+       distances, indices = self.index.search(query_vector, top_k)
+       results = [self.metadata[idx] for idx in indices[0] if idx < len(self.metadata)]
+       return results
+   def save_index(self):
+       """Save FAISS index & metadata to disk"""
+       faiss.write_index(self.index, FAISS_INDEX_PATH)
+       with open(FAISS_METADATA_PATH, "w") as f:
+           json.dump(self.metadata, f)
+   def load_index(self):
+       """Load FAISS index & metadata from disk"""
+       self.index = faiss.read_index(FAISS_INDEX_PATH)
+       with open(FAISS_METADATA_PATH, "r") as f:
+           self.metadata = json.load(f)
+# Initialize FAISS
+faiss_store = FAISSStore()
+# === PDF PROCESSOR ===
+def extract_text_from_pdf(pdf_file):
+   """Extracts text from an uploaded PDF file."""
+   text = ""
+   pdf_reader = PyPDF2.PdfReader(pdf_file)
+   for page in pdf_reader.pages:
+       text += page.extract_text() + "\n"
+   return text
+# === EMBEDDING FUNCTION ===
+def get_embedding(text):
+   """Generates embeddings using Azure OpenAI."""
+   response = client.embeddings.create(
+       input=text,
+       model=AZURE_OPENAI_EMBEDDING_DEPLOYMENT
+   )
+   return response.data[0].embedding
+# === STREAMLIT UI ===
+st.set_page_config(page_title="PDF Q&A Bot", layout="wide")
+st.title("📄 PDF Q&A Chatbot using FAISS and Azure OpenAI")
+# 📂 PDF Upload
+uploaded_file = st.file_uploader("Upload a PDF", type=["pdf"])
 if uploaded_file:
    with st.spinner("🔍 Processing PDF..."):
-       text = "\n".join([page.extract_text() for page in PyPDF2.PdfReader(uploaded_file).pages if page.extract_text()])
-       chunks = text.split("\n")  
-       embeddings = [client.embeddings.create(input=chunk, model=AZURE_OPENAI_EMBEDDING_DEPLOYMENT).data[0].embedding for chunk in chunks if chunk.strip()]
-       faiss_index = faiss.IndexFlatL2(1536)  
-       vectors = np.array(embeddings).astype("float32")
-       faiss_index.add(vectors)
+       text = extract_text_from_pdf(uploaded_file)
+       chunks = text.split("\n")  # Simple chunking (can be improved)
+       embeddings = [get_embedding(chunk) for chunk in chunks if chunk.strip()]
+       faiss_store.add_embeddings(chunks, embeddings)
        st.success("✅ PDF processed and stored in FAISS!")
-# === USER QUESTION INPUT ===
-query = st.text_input("💬 Type your question here:")
+# 💬 Chatbot Input
+query = st.text_input("Ask a question:")
 if query:
    with st.spinner("🤖 Fetching answer..."):
-       query_embedding = client.embeddings.create(input=query, model=AZURE_OPENAI_EMBEDDING_DEPLOYMENT).data[0].embedding
-       relevant_chunks = [chunks[idx] for idx in faiss_index.search(np.array(query_embedding).reshape(1, -1), 3)[1][0]]
+       query_embedding = get_embedding(query)
+       relevant_chunks = faiss_store.search(query_embedding, top_k=3)
        context = "\n".join(relevant_chunks)
        messages = [
            {"role": "system", "content": "You are a helpful assistant."},
@@ -100,8 +104,5 @@ if query:
            temperature=0.3,
        )
        answer = response.choices[0].message.content
-       # Store chat history
-       st.session_state.messages.append({"role": "user", "content": query})
-       st.session_state.messages.append({"role": "bot", "content": answer})
-       # Refresh UI
-       st.rerun()
+       st.markdown("### 📜 Answer:")
+       st.success(answer)
