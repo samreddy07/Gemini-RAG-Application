@@ -2,7 +2,7 @@ import os
 import json
 import sqlite3
 import streamlit as st
-import openai
+from openai import AzureOpenAI
 import PyPDF2
 import numpy as np
 # ---- Config ----
@@ -18,6 +18,12 @@ openai.api_base = AZURE_OPENAI_ENDPOINT
 openai.api_version = "2024-02-01"  # use the version required by your deployment
 openai.api_key = AZURE_OPENAI_KEY
 DB_PATH = "vector_store.db"
+
+client = AzureOpenAI(
+   api_key="85015946c55b4763bcc88fc4db9071dd",
+   api_version ="2024-02-01",
+   azure_endpoint = "https://innovate-openai-api-mgt.azure-api.net/innovate-tracked/deployments/ada-002/embeddings?api-version=2024-02-01"
+)
 # ---- Utility Functions ----
 def extract_text_from_pdf(file) -> str:
    """Extracts text from each page of an uploaded PDF file object."""
@@ -40,11 +46,11 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list:
    return chunks
 def get_embedding(text: str) -> list:
    """Uses the Azure OpenAI API to get the embedding for the given text."""
-   response = openai.Embedding.create(
+   response = client.embeddings.create(
        input=text,
-       deployment_id=AZURE_OPENAI_EMBEDDING_DEPLOYMENT
+       model=AZURE_OPENAI_EMBEDDING_DEPLOYMENT
    )
-   embedding = response['data'][0]['embedding']
+   embedding = response.data[0].embedding
    return embedding
 def cosine_similarity(vec1: list, vec2: list) -> float:
    """Computes the cosine similarity between two vectors."""
