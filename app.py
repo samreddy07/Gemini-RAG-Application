@@ -9,7 +9,7 @@ import numpy as np
 # Set your Azure OpenAI values here or as environment variables.
 # https://innovate-openai-api-mgt.azure-api.net/innovate-tracked/deployments/{deployment-id}/chat/completions?api-version={api-version}
 AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY", "85015946c55b4763bcc88fc4db9071dd")
-AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "https://innovate-openai-api-mgt.azure-api.net/innovate-tracked/deployments/{deployment-id}/chat/completions?api-version=2024-02-01")
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "https://innovate-openai-api-mgt.azure-api.net/innovate-tracked/deployments/{deployment_id}/chat/completions?api-version=2024-02-01")
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "ada-002")
 AZURE_OPENAI_COMPLETION_DEPLOYMENT = os.getenv("AZURE_OPENAI_COMPLETION_DEPLOYMENT", "gpt-4o-mini")
 # Configure the OpenAI client for Azure
