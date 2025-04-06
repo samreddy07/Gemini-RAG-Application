@@ -12,17 +12,17 @@ AZURE_OPENAI_EMBEDDING_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT
 AZURE_OPENAI_COMPLETION_DEPLOYMENT = os.getenv("AZURE_OPENAI_COMPLETION_DEPLOYMENT", "gpt-4o-mini")
 FAISS_INDEX_PATH = "faiss_index.bin"
 FAISS_METADATA_PATH = "faiss_metadata.json"
-# Initialize Azure OpenAI client
+# Initialize Azure OpenAI client for embeddings
 client = AzureOpenAI(
-   api_key=AZURE_OPENAI_KEY,
-   api_version ="2024-02-01",
-   azure_endpoint = "https://innovate-openai-api-mgt.azure-api.net/innovate-tracked/deployments/ada-002/embeddings?api-version=2024-02-01"
+  api_key=AZURE_OPENAI_KEY,
+  api_version="2024-02-01",
+  azure_endpoint="https://innovate-openai-api-mgt.azure-api.net/innovate-tracked/deployments/ada-002/embeddings?api-version=2024-02-01"
 )
-
+# Initialize Azure OpenAI client for chat completions
 chat_client = AzureOpenAI(
-   api_key=AZURE_OPENAI_KEY,
-   api_version ="2024-02-01",
-   azure_endpoint = "https://innovate-openai-api-mgt.azure-api.net/innovate-tracked/deployments/gpt-4o-mini/chat/completions?api-version=2024-02-01"
+  api_key=AZURE_OPENAI_KEY,
+  api_version="2024-02-01",
+  azure_endpoint="https://innovate-openai-api-mgt.azure-api.net/innovate-tracked/deployments/gpt-4o-mini/chat/completions?api-version=2024-02-01"
 )
 # === FAISS STORE ===
 class FAISSStore:
@@ -57,7 +57,7 @@ class FAISSStore:
        self.index = faiss.read_index(FAISS_INDEX_PATH)
        with open(FAISS_METADATA_PATH, "r") as f:
            self.metadata = json.load(f)
-# Initialize FAISS
+# Initialize FAISS store
 faiss_store = FAISSStore()
 # === PDF PROCESSOR ===
 def extract_text_from_pdf(pdf_file):
@@ -78,25 +78,35 @@ def get_embedding(text):
 # === STREAMLIT UI ===
 st.set_page_config(page_title="PDF Q&A Bot", layout="wide")
 st.title("📄 PDF Q&A Chatbot using FAISS and Azure OpenAI")
-# 📂 PDF Upload
-uploaded_file = st.file_uploader("Upload a PDF", type=["pdf"])
-if uploaded_file:
-   with st.spinner("🔍 Processing PDF..."):
-       text = extract_text_from_pdf(uploaded_file)
-       chunks = text.split("\n")  # Simple chunking (can be improved)
-       embeddings = [get_embedding(chunk) for chunk in chunks if chunk.strip()]
-       faiss_store.add_embeddings(chunks, embeddings)
-       st.success("✅ PDF processed and stored in FAISS!")
-# 💬 Chatbot Input
-query = st.text_input("Ask a question:")
-if query:
+# Move PDF uploader to the sidebar
+with st.sidebar:
+   st.header("Upload PDF")
+   uploaded_file = st.file_uploader("Select a PDF file", type=["pdf"])
+   if uploaded_file:
+       with st.spinner("🔍 Processing PDF..."):
+           text = extract_text_from_pdf(uploaded_file)
+           # Simple chunking by splitting on new lines (this can be improved)
+           chunks = text.split("\n")
+           embeddings = [get_embedding(chunk) for chunk in chunks if chunk.strip()]
+           faiss_store.add_embeddings(chunks, embeddings)
+           st.success("✅ PDF processed and stored in FAISS!")
+# Initialize session state for chat history if not already set
+if "chat_history" not in st.session_state:
+   st.session_state.chat_history = []
+# Chat interface using ChatGPT-like UI components
+st.header("Chat with your PDF")
+user_input = st.chat_input("Ask a question:")
+if user_input:
+   # Append user message to chat history
+   st.session_state.chat_history.append({"role": "user", "content": user_input})
+   # Process the query
    with st.spinner("🤖 Fetching answer..."):
-       query_embedding = get_embedding(query)
+       query_embedding = get_embedding(user_input)
        relevant_chunks = faiss_store.search(query_embedding, top_k=3)
        context = "\n".join(relevant_chunks)
        messages = [
            {"role": "system", "content": "You are a helpful assistant."},
-           {"role": "user", "content": f"Context: {context}\n\nQuestion: {query}"}
+           {"role": "user", "content": f"Context: {context}\n\nQuestion: {user_input}"}
        ]
        response = chat_client.chat.completions.create(
            model=AZURE_OPENAI_COMPLETION_DEPLOYMENT,
@@ -104,5 +114,11 @@ if query:
            temperature=0.3,
        )
        answer = response.choices[0].message.content
-       st.markdown("### 📜 Answer:")
-       st.success(answer)
+       # Append assistant response to chat history
+       st.session_state.chat_history.append({"role": "assistant", "content": answer})
+# Display chat history using chat-like messages
+for msg in st.session_state.chat_history:
+   if msg["role"] == "assistant":
+       st.chat_message("assistant").write(msg["content"])
+   else:
+       st.chat_message("user").write(msg["content"])
