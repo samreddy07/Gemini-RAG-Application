@@ -1,6 +1,6 @@
 streamlit
 PyPDF2==3.0.0
-db-sqlite3
+llama-index-vector-stores-chroma
 altair==4.1.0
 openai
 azure-core
