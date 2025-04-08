@@ -1,142 +1,127 @@
-import os
-from pathlib import Path
 import streamlit as st
-from llama_index.core import (
-   SimpleDirectoryReader,
-   VectorStoreIndex,
-   StorageContext)
-from llama_index.core.vector_stores import (
-   MetadataFilters,
-   FilterCondition,
-   ExactMatchFilter)
-from llama_index.core.chat_engine import SimpleChatEngine
-from llama_index.vector_stores.faiss import FaissVectorStore
-from llama_index.llms.openai import OpenAI
-from llama_index.core.embeddings import resolve_embed_model
 import faiss
-# === Azure OpenAI CONFIGURATION ===
+import numpy as np
+import json
+import os
+import PyPDF2
+from openai import AzureOpenAI  # Import AzureOpenAI SDK
+# === CONFIGURATION ===
 AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY", "85015946c55b4763bcc88fc4db9071dd")
-AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "https://innovate-openai-api-mgt.azure-api.net")
-AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
-os.environ["OPENAI_API_BASE"] = AZURE_OPENAI_ENDPOINT
-os.environ["OPENAI_API_KEY"] = AZURE_OPENAI_KEY
-os.environ["OPENAI_API_VERSION"] = "2024-02-01"
-st.title(":underage: Mr. Wiki")
-# Create documents directory if it doesn't exist.
-if "file_dir" not in st.session_state:
-   st.session_state.file_dir = Path("./documents").resolve()
-   os.makedirs(st.session_state.file_dir, exist_ok=True)
-# Set up the FAISS vector store.
-if "vector_store" not in st.session_state:
-   embedding_dim = 1536  # ADA-002 embeddings dimension
-   faiss_index = faiss.IndexFlatL2(embedding_dim)
-   st.session_state.vector_store = FaissVectorStore(faiss_index=faiss_index)
-# Retrieve available document filenames from the local documents directory.
-if "options" not in st.session_state:
-   st.session_state.options = sorted(
-       [f.name for f in st.session_state.file_dir.glob("*") if f.is_file()]
+AZURE_OPENAI_ENDPOINT = os.getenv(
+   "AZURE_OPENAI_ENDPOINT",
+   "https://innovate-openai-api-mgt.azure-api.net/innovate-tracked/deployments/gpt-4o-mini/chat/completions?api-version=2024-02-01"
+)
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "ada-002")
+AZURE_OPENAI_COMPLETION_DEPLOYMENT = os.getenv("AZURE_OPENAI_COMPLETION_DEPLOYMENT", "gpt-4o-mini")
+FAISS_INDEX_PATH = "faiss_index.bin"
+FAISS_METADATA_PATH = "faiss_metadata.json"
+# Initialize Azure OpenAI client for embeddings
+client = AzureOpenAI(
+   api_key=AZURE_OPENAI_KEY,
+   api_version="2024-02-01",
+   azure_endpoint="https://innovate-openai-api-mgt.azure-api.net/innovate-tracked/deployments/ada-002/embeddings?api-version=2024-02-01"
+)
+# Initialize Azure OpenAI client for chat completions
+chat_client = AzureOpenAI(
+   api_key=AZURE_OPENAI_KEY,
+   api_version="2024-02-01",
+   azure_endpoint="https://innovate-openai-api-mgt.azure-api.net/innovate-tracked/deployments/gpt-4o-mini/chat/completions?api-version=2024-02-01"
+)
+# === FAISS STORE ===
+class FAISSStore:
+   def __init__(self, embedding_dim=1536):
+       self.embedding_dim = embedding_dim
+       self.index = faiss.IndexFlatL2(self.embedding_dim)  # L2 distance search
+       self.metadata = []  # Stores text chunks
+       # Load existing index if available
+       if os.path.exists(FAISS_INDEX_PATH):
+           self.load_index()
+   def add_embeddings(self, texts, embeddings):
+       """Adds text chunks & embeddings to FAISS"""
+       if not embeddings:
+           return
+       vectors = np.array(embeddings).astype("float32")
+       self.index.add(vectors)
+       self.metadata.extend(texts)
+       self.save_index()
+   def search(self, query_embedding, top_k=3):
+       """Searches FAISS for the closest text chunks"""
+       query_vector = np.array(query_embedding).astype("float32").reshape(1, -1)
+       distances, indices = self.index.search(query_vector, top_k)
+       results = [self.metadata[idx] for idx in indices[0] if idx < len(self.metadata)]
+       return results
+   def save_index(self):
+       """Save FAISS index & metadata to disk"""
+       faiss.write_index(self.index, FAISS_INDEX_PATH)
+       with open(FAISS_METADATA_PATH, "w") as f:
+           json.dump(self.metadata, f)
+   def load_index(self):
+       """Load FAISS index & metadata from disk"""
+       self.index = faiss.read_index(FAISS_INDEX_PATH)
+       with open(FAISS_METADATA_PATH, "r") as f:
+           self.metadata = json.load(f)
+# Initialize FAISS store
+faiss_store = FAISSStore()
+# === PDF PROCESSOR ===
+def extract_text_from_pdf(pdf_file):
+   """Extracts text from an uploaded PDF file."""
+   text = ""
+   pdf_reader = PyPDF2.PdfReader(pdf_file)
+   for page in pdf_reader.pages:
+       text += page.extract_text() + "\n"
+   return text
+# === EMBEDDING FUNCTION ===
+def get_embedding(text):
+   """Generates embeddings using Azure OpenAI."""
+   response = client.embeddings.create(
+       input=text,
+       model=AZURE_OPENAI_EMBEDDING_DEPLOYMENT
    )
-# Documents selected for querying.
-if "selected_options" not in st.session_state:
-   st.session_state.selected_options = []
-# Initialize the LLM with Azure OpenAI deployment.
-if "llm" not in st.session_state:
-   st.session_state.llm = OpenAI(
-       api_key=AZURE_OPENAI_KEY,
-       api_base=AZURE_OPENAI_ENDPOINT,
-       deployment_id=AZURE_OPENAI_DEPLOYMENT,
-       temperature=0.3
-   )
-# Use Azure ADA-002 for text embeddings.
-if "embed_model" not in st.session_state:
-   st.session_state.embed_model = resolve_embed_model("ada-002")
-# Initialize the chat engine.
-if "chat_engine" not in st.session_state:
-   st.session_state.chat_engine = SimpleChatEngine.from_defaults(llm=st.session_state.llm)
-# --- CALLBACK FUNCTIONS ---
-def load_data():
-   with st.spinner(text="Loading Database..."):
-       index = VectorStoreIndex.from_vector_store(
-           st.session_state.vector_store, embed_model=st.session_state.embed_model
-       )
-       # Build filters using the selected document file names.
-       files = [str(st.session_state.file_dir / file) for file in st.session_state.selected_options]
-       filters = [ExactMatchFilter(key="file_name", value=file) for file in files]
-       meta_filters = MetadataFilters(
-           filters=filters,
-           condition=FilterCondition.OR
-       )
-       st.session_state.chat_engine = index.as_query_engine(
-           verbose=True,
-           llm=st.session_state.llm,
-           streaming=True,
-           filters=meta_filters
-       )
-def delete(files):
-   with st.spinner(text="Deleting..."):
-       for file in files:
-           file_path = st.session_state.file_dir / file
-           if file_path.is_file():
-               os.remove(file_path)
-               st.session_state.options.remove(file)
-       # (Note: Removing embeddings from the FAISS index directly is not provided.
-       # If needed, re-indexing all documents would be required.)
-def upload(files):
-   with st.spinner(text="Uploading..."):
-       file_pathes = []
-       for uploaded_file in files:
-           if uploaded_file.name not in st.session_state.options:
-               file_path = st.session_state.file_dir / uploaded_file.name
-               with open(file_path, "wb") as f:
-                   f.write(uploaded_file.read())
-               st.session_state.options.append(uploaded_file.name)
-               file_pathes.append(file_path)
-       if file_pathes:
-           documents = SimpleDirectoryReader(input_files=file_pathes).load_data()
-           storage_context = StorageContext.from_defaults(vector_store=st.session_state.vector_store)
-           # Index the documents with their embeddings (including metadata such as file_name)
-           VectorStoreIndex.from_documents(
-               documents, storage_context=storage_context, embed_model=st.session_state.embed_model
-           )
-# --- SIDEBAR ELEMENTS ---
+   return response.data[0].embedding
+# === STREAMLIT UI ===
+st.set_page_config(page_title="PDF Q&A Bot", layout="wide")
+st.title("📄 PDF Q&A Chatbot using FAISS and Azure OpenAI")
+# Sidebar: PDF uploader
 with st.sidebar:
-   st.subheader(":desktop_computer: Vector Database Configuration")
-   with st.expander(":arrow_up: Upload documents"):
-       uploaded_files = st.file_uploader("Upload documents", accept_multiple_files=True)
-       if uploaded_files:
-           upload(uploaded_files)
-   with st.expander(":wastebasket: Remove documents"):
-       to_remove = st.multiselect(
-           label="Delete documents",
-           options=st.session_state.options
+   st.header("Upload PDF")
+   uploaded_file = st.file_uploader("Select a PDF file", type=["pdf"])
+   if uploaded_file:
+       with st.spinner("🔍 Processing PDF..."):
+           text = extract_text_from_pdf(uploaded_file)
+           # Simple chunking by splitting on new lines (can be improved for better segmentation)
+           chunks = text.split("\n")
+           embeddings = [get_embedding(chunk) for chunk in chunks if chunk.strip()]
+           faiss_store.add_embeddings(chunks, embeddings)
+           st.success("✅ PDF processed and stored in FAISS!")
+# Initialize session state for chat history if not already set
+if "chat_history" not in st.session_state:
+   st.session_state.chat_history = []
+# Main Chat Interface
+st.header("Chat with your PDF")
+user_input = st.chat_input("Ask a question:")
+if user_input:
+   # Append user message to chat history
+   st.session_state.chat_history.append({"role": "user", "content": user_input})
+   # Process query
+   with st.spinner("🤖 Fetching answer..."):
+       query_embedding = get_embedding(user_input)
+       relevant_chunks = faiss_store.search(query_embedding, top_k=3)
+       context = "\n".join(relevant_chunks)
+       messages = [
+           {"role": "system", "content": "You are a helpful assistant."},
+           {"role": "user", "content": f"Context: {context}\n\nQuestion: {user_input}"}
+       ]
+       response = chat_client.chat.completions.create(
+           model=AZURE_OPENAI_COMPLETION_DEPLOYMENT,
+           messages=messages,
+           temperature=0.3,
        )
-       st.button(":fire: Confirm", on_click=lambda: delete(to_remove))
-   st.markdown("---")
-   st.subheader(":file_folder: Select documents needed to query")
-   st.multiselect(
-       label="Select documents needed to query",
-       options=st.session_state.options,
-       key="selected_options"
-   )
-   st.write(":bookmark_tabs: Selected documents are:", st.session_state.selected_options)
-   st.button(":dancer: Query these documents!", on_click=load_data)
-# --- MAIN CHAT PART ---
-if "messages" not in st.session_state:
-   st.session_state.messages = [
-       {"role": "assistant", "content": "Ask me anything!"}
-   ]
-if prompt := st.chat_input("Your question"):
-   st.session_state.messages.append({"role": "user", "content": prompt})
-for message in st.session_state.messages:
-   with st.chat_message(message["role"]):
-       st.write(message["content"])
-if st.session_state.messages[-1]["role"] != "assistant":
-   with st.chat_message("assistant"):
-       with st.spinner("Thinking..."):
-           if isinstance(st.session_state.chat_engine, SimpleChatEngine):
-               stream = st.session_state.chat_engine.stream_chat(prompt)
-           else:
-               stream = st.session_state.chat_engine.query(prompt)
-           response = st.write_stream(stream.response_gen)
-           message = {"role": "assistant", "content": response}
-           st.session_state.messages.append(message)
+       answer = response.choices[0].message.content
+       # Append assistant response to chat history
+       st.session_state.chat_history.append({"role": "assistant", "content": answer})
+# Display chat history with ChatGPT-style UI components
+for msg in st.session_state.chat_history:
+   if msg["role"] == "assistant":
+       st.chat_message("assistant").write(msg["content"])
+   else:
+       st.chat_message("user").write(msg["content"])
